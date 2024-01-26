@@ -17,6 +17,8 @@ import requests
 from mdxpy import MdxBuilder, Member
 from requests.adapters import HTTPAdapter
 
+from TM1py.Services import TM1Service
+from TM1py.Objects import Hierarchy, Dimension, ElementAttribute, Element, Cube
 from TM1py.Exceptions.Exceptions import TM1pyVersionException, TM1pyNotAdminException, TM1pyNotDataAdminException, \
     TM1pyNotSecurityAdminException, TM1pyNotOpsAdminException, TM1pyVersionDeprecationException
 
@@ -977,6 +979,149 @@ def map_cell_properties_to_compact_json_response(properties: List, compact_cells
         cells.append(d)
     cells_dict['Cells'] = cells
     return cells_dict
+
+
+def create_blank_dimension(tm1: TM1Service, dimension_config: Dict, drop_dimension: bool = False):
+    """
+    Create blank dimension if necessary
+    
+    dimension_config = {
+    "dimension_name": "dummy_dimension1",
+    "hierarchy_names": ["dummy_hierarchy1", "dummy_hierarchy2"],
+    "elements": {
+        "Dummy": "Numeric",
+        "Orphans": "Consolidated"
+    },
+    "element_attributes": {
+        "friendly_name": "String",
+        "root": "String"
+    }
+    }
+    """
+
+    dimension_name = dimension_config.get("dimension_name", "")
+
+    if not dimension_name:
+        raise ValueError("No Dimension Name!")
+
+    drop_dimension = dimension_config.get("drop_dimension", drop_dimension)
+
+    element_dict = dimension_config.get("elements", {"Dummy": "Numeric"})
+
+    elements = [Element(name=name, element_type=element_type) for name, element_type in element_dict.items()]
+
+    elem_attr_dict = dimension_config.get("element_attributes", {})
+
+    element_attributes = [ElementAttribute(name=name, attribute_type=at_type) for name, at_type in elem_attr_dict.items()]
+
+    hierarchy_names = dimension_config.get("hierarchy_names", dimension_name)
+
+    hierarchies = []
+
+    if isinstance(hierarchy_names, str):
+        hierarchy_name = hierarchy_names
+
+        new_hierarchy = Hierarchy(name=hierarchy_name,
+                                  dimension_name=dimension_name,
+                                  element_attributes=element_attributes,
+                                  elements=elements
+                                  )
+        hierarchies.append(new_hierarchy)
+
+    elif isinstance(hierarchy_names, List):
+        for hierarchy_name in hierarchy_names:
+            new_hierarchy = Hierarchy(name=hierarchy_name,
+                                      dimension_name=dimension_name,
+                                      element_attributes=element_attributes,
+                                      elements=elements
+                                      )
+            hierarchies.append(new_hierarchy)
+    else:
+        raise ValueError("Wrong datatype for hierarchy_names config parameter!")
+
+    new_dimension = Dimension(name=dimension_name, hierarchies=hierarchies)
+
+    if not tm1.dimensions.exists(dimension_name=dimension_name):
+        tm1.dimensions.create(dimension=new_dimension)
+        #logger.info(f"Created dimension: {dimension_name}!")
+    else:
+        if drop_dimension:
+            tm1.dimensions.delete(dimension_name=dimension_name)
+            #logger.info(f"Dropped dimension: {dimension_name}!")
+            tm1.dimensions.create(dimension=new_dimension)
+            #logger.info(f"Recreated dimension: {dimension_name}!")
+        #else:
+            #logger.info(f"Nothing to do. Dimension {dimension_name} already exists!")
+
+
+def create_blank_cube_and_dimensions(tm1: TM1Service, config: Dict):
+    """
+    Create blank Cube and blank dimensions if necessary
+
+    config = {
+    "cube_name": "EIS_Cube",
+    "overwrite": false,
+    "dimensions": [
+                  {
+                    "dimension_name": "dummy_dimension1",
+                    "hierarchy_names": ["dummy_hierarchy1", "dummy_hierarchy2"],
+                    "elements": {
+                        "Dummy": "Numeric",
+                        "Orphans": "Consolidated"
+                    },
+                    "element_attributes": {
+                        "friendly_name": "String",
+                        "root": "String"
+                    }
+                    },
+                    {
+                    "dimension_name": "dummy_dimension2",
+                    "elements": {
+                        "Dummy": "Numeric",
+                        "Orphans": "Consolidated"
+                    },
+                    "element_attributes": {
+                        "friendly_name": "String",
+                        "root": "String"
+                    }
+                    }
+                ]
+    }
+
+    """
+
+    cube_name = config.get("cube_name", "")
+    if not cube_name:
+        raise ValueError("No cube_name entry in config dictionary")
+    overwrite = False
+
+    cube_dimensions = []
+    for dimension_config in config["dimensions"]:
+        dimension_name = dimension_config.get("dimension_name", "")
+        create_blank_dimension(tm1=tm1,
+                               dimension_config=dimension_config)
+        cube_dimensions.append(dimension_name)
+
+    rules = (f"SKIPCHECK; \r\n"
+             f"#This is a placeholder \r\n"
+             f"FEEDERS; \r\n"
+             f"#This is a placeholder \r\n")
+
+    cube = Cube(name=cube_name, dimensions=cube_dimensions, rules=rules)
+
+    exists = tm1.cubes.exists(cube_name=cube_name)
+
+    if 'overwrite' in config:
+        overwrite = config['overwrite']
+    if not exists:
+        tm1.cubes.create(cube)
+ #       logger.info(f"Created Cube: {cube_name} with dimensions: {cube_dimensions}!")
+    if exists and overwrite:
+        tm1.cubes.update(cube)
+ #       logger.info(f"Updated Cube: {cube_name} with dimensions: {cube_dimensions}!")
+ #   elif exists and not overwrite:
+ #       logger.info(f"Nothing to do. Cube {cube_name} already exists!")
+
 
 
 class CaseAndSpaceInsensitiveDict(collections.abc.MutableMapping):
