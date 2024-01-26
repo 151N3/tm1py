@@ -267,8 +267,10 @@ class RestService:
             encoding=encoding)
 
         try:
+            if return_async_id:
+                async_requests_mode = True
             # determine async_requests_mode
-            if async_requests_mode is None:
+            elif async_requests_mode is None:
                 async_requests_mode = self._async_requests_mode
 
             if not async_requests_mode:
@@ -803,7 +805,7 @@ class RestService:
     @property
     def is_data_admin(self) -> bool:
         if self._is_data_admin is None:
-            response = self.GET("ActiveUser/Groups")
+            response = self.GET("/ActiveUser/Groups")
             self._is_data_admin = any(g in CaseAndSpaceInsensitiveSet(
                 *[group["Name"] for group in response.json()["value"]]) for g in ["Admin", "DataAdmin"])
 
